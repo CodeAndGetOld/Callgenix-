@@ -17,6 +17,13 @@ const TwilioSetup: React.FC<TwilioSetupProps> = ({ token, onCallStatusChange, on
           codecPreferences: ['opus', 'pcmu'],
           fakeLocalDTMF: true,
           enableRingingState: true,
+          disableAudioContextSounds: true, // Disable audio context sounds
+          closeProtection: false, // Disable close protection
+          appName: 'CallAICenter', // Custom app name
+          appVersion: '1.0.0', // Custom version
+          enableIceRestart: true, // Enable ICE restart for better connection handling
+          maxAverageBitrate: 16000, // Set max bitrate to prevent quality issues
+          disableIdTracking: true, // Disable ID tracking
         });
 
         await newDevice.register();

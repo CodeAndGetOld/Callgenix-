@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, MessageSquare, Settings, BarChart3, Users, Play, Pause, Bell } from 'lucide-react';
+import { PhoneIcon, ChatBubbleLeftIcon, Cog6ToothIcon, ChartBarIcon, UsersIcon, PlayIcon, PauseIcon, BellIcon } from '@heroicons/react/24/outline';
 import TwilioSetup from './components/TwilioSetup';
 import CallManager from './components/CallManager';
 
@@ -18,6 +18,7 @@ function App() {
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
         });
         
         if (!response.ok) {
@@ -32,6 +33,9 @@ function App() {
         }
       } catch (error) {
         console.error('Error fetching Twilio token:', error);
+        if (error instanceof TypeError && error.message === 'Failed to fetch') {
+          console.error('Server might not be running. Please start the server with npm run server');
+        }
       }
     };
 
@@ -78,17 +82,17 @@ function App() {
       {/* Sidebar */}
       <div className="fixed w-64 h-full bg-white border-r border-gray-200">
         <div className="flex items-center gap-2 p-6 border-b border-gray-200">
-          <Phone className="w-6 h-6 text-blue-600" />
+          <PhoneIcon className="w-6 h-6 text-blue-600" />
           <h1 className="text-xl font-bold text-gray-800">CallAI Center</h1>
         </div>
         <nav className="p-4">
           <ul className="space-y-2">
             {[
-              { id: 'dashboard', icon: BarChart3, label: 'Dashboard' },
-              { id: 'calls', icon: Phone, label: 'Active Calls' },
-              { id: 'scripts', icon: MessageSquare, label: 'AI Scripts' },
-              { id: 'agents', icon: Users, label: 'Virtual Agents' },
-              { id: 'settings', icon: Settings, label: 'Settings' },
+              { id: 'dashboard', icon: ChartBarIcon, label: 'Dashboard' },
+              { id: 'calls', icon: PhoneIcon, label: 'Active Calls' },
+              { id: 'scripts', icon: ChatBubbleLeftIcon, label: 'AI Scripts' },
+              { id: 'agents', icon: UsersIcon, label: 'Virtual Agents' },
+              { id: 'settings', icon: Cog6ToothIcon, label: 'Settings' },
             ].map((item) => (
               <li key={item.id}>
                 <button
@@ -122,12 +126,12 @@ function App() {
           >
             {systemStatus === 'active' ? (
               <>
-                <Play className="w-5 h-5" />
+                <PlayIcon className="w-5 h-5" />
                 System Active
               </>
             ) : (
               <>
-                <Pause className="w-5 h-5" />
+                <PauseIcon className="w-5 h-5" />
                 System Paused
               </>
             )}
@@ -183,7 +187,7 @@ function App() {
                 key={index}
                 className="flex items-center gap-3 p-3 rounded-lg bg-gray-50"
               >
-                <Bell className={`w-5 h-5 text-${
+                <BellIcon className={`w-5 h-5 text-${
                   alert.type === 'warning' ? 'yellow' : 
                   alert.type === 'success' ? 'green' : 'blue'
                 }-500`} />
