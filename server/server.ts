@@ -5,11 +5,17 @@ import twilio from 'twilio';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import OpenAI from 'openai';
+import mongoose from 'mongoose';
+import Call from './models/Call';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ai-call-center')
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 const app = express();
 app.use(
@@ -59,23 +65,6 @@ app.post('/api/token', (_req, res) => {
   res.json({ token: accessToken.toJwt() });
 });
 
-// In-memory storage for call data
-interface CallData {
-  transcription?: string;
-  summary?: string;
-  recordingUrl?: string;
-  timestamp: Date;
-  phoneNumber?: string;
-  duration?: number;
-  status: 'missed' | 'answered' | 'voicemail';
-  category?: string;
-  priority?: 'low' | 'medium' | 'high';
-  followUpRequired?: boolean;
-  notes?: string;
-}
-
-const callStorage = new Map<string, CallData>();
-
 // Handle incoming calls
 app.post('/api/voice', (req, res) => {
   const twiml = new VoiceResponse();
@@ -83,11 +72,13 @@ app.post('/api/voice', (req, res) => {
   const callSid = req.body.CallSid;
 
   // Store initial call data
-  callStorage.set(callSid, {
+  const call = new Call({
+    callSid,
     timestamp: new Date(),
     phoneNumber: fromNumber,
-    status: 'missed',
+    status: 'missed'
   });
+  call.save();
 
   // Start gathering input
   const gather = twiml.gather({
@@ -120,8 +111,13 @@ app.post('/api/handle-input', (req, res) => {
   const callSid = req.body.CallSid;
   const speechResult = req.body.SpeechResult;
 
-  const callData = callStorage.get(callSid);
-  if (callData) {
+  Call.findOne({ callSid }, (err, callData) => {
+    if (err || !callData) {
+      console.error('Error finding call data:', err);
+      res.status(500).send(twiml.toString());
+      return;
+    }
+
     if (digits === '1' || speechResult?.toLowerCase().includes('urgență')) {
       callData.priority = 'high';
       callData.category = 'emergency';
@@ -153,8 +149,12 @@ app.post('/api/handle-input', (req, res) => {
       twiml.redirect('/api/voicemail');
     }
 
-    callStorage.set(callSid, callData);
-  }
+    callData.save((err) => {
+      if (err) {
+        console.error('Error saving call data:', err);
+      }
+    });
+  });
 
   res.type('text/xml');
   res.send(twiml.toString());
@@ -170,55 +170,92 @@ app.post('/api/voicemail', (req, res) => {
       language: 'ro-RO',
       voice: 'Polly.Carmen',
     },
-    'Vă rugăm să lăsați un mesaj după ton. Mesajul dumneavoastră va fi procesat și veți fi contactat în cel mai scurt timp.',
+    'Vă rugăm să lăsați un mesaj după ton. Apăsați # când ați terminat.'
   );
 
   twiml.record({
-    action: '/api/recording-status',
+    action: '/api/handle-recording',
     transcribe: true,
-    transcribeCallback: '/api/transcription',
+    transcribeCallback: '/api/handle-transcription',
     maxLength: 300,
-    timeout: 5,
+    finishOnKey: '#',
     playBeep: true,
+    timeout: 5
   });
-
-  const callData = callStorage.get(callSid);
-  if (callData) {
-    callData.status = 'voicemail';
-    callStorage.set(callSid, callData);
-  }
 
   res.type('text/xml');
   res.send(twiml.toString());
 });
 
-// Enhanced transcription handler
-app.post('/api/transcription', async (req, res) => {
-  const transcriptionText = req.body.TranscriptionText;
+// Handle recording completion
+app.post('/api/handle-recording', async (req, res) => {
+  const twiml = new VoiceResponse();
   const callSid = req.body.CallSid;
+  const recordingUrl = req.body.RecordingUrl;
+  const duration = parseInt(req.body.RecordingDuration || '0');
 
-  if (transcriptionText && callSid) {
+  try {
+    let call = await Call.findOne({ callSid });
+    if (!call) {
+      call = new Call({
+        callSid,
+        timestamp: new Date(),
+        status: 'voicemail'
+      });
+    }
+    
+    call.recordingUrl = recordingUrl;
+    call.duration = duration;
+    await call.save();
+
+    twiml.say(
+      {
+        language: 'ro-RO',
+        voice: 'Polly.Carmen',
+      },
+      'Mulțumim pentru mesaj. O să vă contactăm în cel mai scurt timp.'
+    );
+    twiml.hangup();
+
+    res.type('text/xml');
+    res.send(twiml.toString());
+  } catch (error) {
+    console.error('Error saving recording:', error);
+    res.status(500).send(twiml.toString());
+  }
+});
+
+// Handle transcription completion
+app.post('/api/handle-transcription', async (req, res) => {
+  const callSid = req.body.CallSid;
+  const transcriptionText = req.body.TranscriptionText;
+
+  if (callSid && transcriptionText) {
     try {
       // Generate summary and analyze content
       const analysis = await analyzeCall(transcriptionText);
 
-      const callData = callStorage.get(callSid) || {
-        timestamp: new Date(),
-        status: 'voicemail',
-      };
+      let call = await Call.findOne({ callSid });
+      if (!call) {
+        call = new Call({
+          callSid,
+          timestamp: new Date(),
+          status: 'voicemail'
+        });
+      }
 
-      callData.transcription = transcriptionText;
-      callData.summary = analysis.summary;
-      callData.category = analysis.category;
-      callData.priority = analysis.priority;
-      callData.followUpRequired = analysis.followUpRequired;
-      callStorage.set(callSid, callData);
+      call.transcription = transcriptionText;
+      call.summary = analysis.summary;
+      call.category = analysis.category;
+      call.priority = analysis.priority;
+      call.followUpRequired = analysis.followUpRequired;
+      await call.save();
 
       console.log('Call Analysis:', analysis);
       res.json({
         success: true,
         analysis,
-        callSid,
+        callSid
       });
     } catch (error) {
       console.error('Error in transcription handler:', error);
@@ -228,9 +265,123 @@ app.post('/api/transcription', async (req, res) => {
   } else {
     res.status(400).json({
       success: false,
-      error: !transcriptionText ? 'No transcription text provided' : 'No call SID provided',
+      error: !transcriptionText ? 'No transcription text provided' : 'No call SID provided'
     });
   }
+});
+
+// Get all calls with filtering
+app.get('/api/calls', async (req, res) => {
+  const { status, priority, category, startDate, endDate } = req.query;
+
+  try {
+    const query: any = {};
+
+    if (status) query.status = status;
+    if (priority) query.priority = priority;
+    if (category) query.category = category;
+    
+    if (startDate || endDate) {
+      query.timestamp = {};
+      if (startDate) query.timestamp.$gte = new Date(startDate as string);
+      if (endDate) query.timestamp.$lte = new Date(endDate as string);
+    }
+
+    const calls = await Call.find(query).sort({ timestamp: -1 });
+    res.json({ success: true, data: calls });
+  } catch (error) {
+    console.error('Error fetching calls:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch calls' });
+  }
+});
+
+// Get single call
+app.get('/api/calls/:callSid', async (req, res) => {
+  try {
+    const call = await Call.findOne({ callSid: req.params.callSid });
+    if (!call) {
+      return res.status(404).json({ success: false, error: 'Call not found' });
+    }
+    res.json({ success: true, data: call });
+  } catch (error) {
+    console.error('Error fetching call:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch call' });
+  }
+});
+
+// Handle recording status
+app.post('/api/recording-status', async (req, res) => {
+  const recordingUrl = req.body.RecordingUrl;
+  const callSid = req.body.CallSid;
+
+  if (req.body.RecordingStatus === 'completed' && callSid) {
+    // Store recording information
+    console.log(`Recording completed: ${recordingUrl}`);
+
+    try {
+      let call = await Call.findOne({ callSid });
+      if (!call) {
+        call = new Call({
+          callSid,
+          timestamp: new Date(),
+          status: 'answered', // Set an initial status for the recording
+        });
+      }
+      
+      call.recordingUrl = recordingUrl;
+      await call.save();
+    } catch (error) {
+      console.error('Error saving recording:', error);
+    }
+  }
+
+  res.sendStatus(200);
+});
+
+// Handle outgoing calls
+app.post('/api/call', express.json(), async (req: express.Request, res: express.Response) => {
+  try {
+    const { to } = req.body;
+    
+    if (!to) {
+      res.status(400).json({ success: false, error: 'Phone number is required' });
+      return;
+    }
+
+    if (!twilioPhoneNumber) {
+      res.status(500).json({ success: false, error: 'Twilio phone number not configured' });
+      return;
+    }
+
+    const call = await client.calls.create({
+      url: process.env.WEBHOOK_URL || 'https://demo.twilio.com/docs/voice.xml', // Fallback to Twilio demo TwiML
+      to: to,
+      from: twilioPhoneNumber
+    });
+
+    // Initialize call data
+    const newCall = new Call({
+      callSid: call.sid,
+      timestamp: new Date(),
+      status: 'answered',
+      phoneNumber: to
+    });
+    await newCall.save();
+
+    res.json({ success: true, callSid: call.sid });
+  } catch (error) {
+    console.error('Error making outbound call:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error occurred' 
+    });
+  }
+});
+
+// Call status webhook
+app.post('/api/call-status', (req, res) => {
+  console.log('Call Status:', req.body.CallStatus);
+  res.sendStatus(200);
 });
 
 // Analyze call content using OpenAI
@@ -300,100 +451,6 @@ async function analyzeCall(transcription: string): Promise<{
     throw new Error('Nu s-a putut analiza apelul');
   }
 }
-
-// Get all calls with filtering
-app.get('/api/calls', (req, res) => {
-  const { status, priority, category, startDate, endDate } = req.query;
-
-  let filteredCalls = Array.from(callStorage.entries()).map(([callSid, data]) => ({
-    callSid,
-    ...data,
-  }));
-
-  // Apply filters
-  if (status) {
-    filteredCalls = filteredCalls.filter((call) => call.status === status);
-  }
-  if (priority) {
-    filteredCalls = filteredCalls.filter((call) => call.priority === priority);
-  }
-  if (category) {
-    filteredCalls = filteredCalls.filter((call) => call.category === category);
-  }
-  if (startDate) {
-    const start = new Date(startDate as string);
-    filteredCalls = filteredCalls.filter((call) => call.timestamp >= start);
-  }
-  if (endDate) {
-    const end = new Date(endDate as string);
-    filteredCalls = filteredCalls.filter((call) => call.timestamp <= end);
-  }
-
-  // Sort by timestamp descending
-  filteredCalls.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-
-  res.json({ success: true, calls: filteredCalls });
-});
-
-// Handle recording status
-app.post('/api/recording-status', async (req, res) => {
-  const recordingUrl = req.body.RecordingUrl;
-  const callSid = req.body.CallSid;
-
-  if (req.body.RecordingStatus === 'completed' && callSid) {
-    // Store recording information
-    console.log(`Recording completed: ${recordingUrl}`);
-
-    const callData = callStorage.get(callSid) || {
-      timestamp: new Date(),
-    };
-
-    callData.recordingUrl = recordingUrl;
-    callStorage.set(callSid, callData);
-  }
-
-  res.sendStatus(200);
-});
-
-// Get call data
-app.get('/api/calls/:callSid', (req, res) => {
-  const { callSid } = req.params;
-  const callData = callStorage.get(callSid);
-
-  if (callData) {
-    res.json({ success: true, data: callData });
-  } else {
-    res.status(404).json({ success: false, error: 'Call data not found' });
-  }
-});
-
-// Handle outbound calls
-app.post('/api/call', async (req, res) => {
-  try {
-    const call = await client.calls.create({
-      url: `https://${req.headers.host}/api/voice`,
-      to: req.body.to,
-      from: twilioPhoneNumber!,
-      record: true,
-      recordingStatusCallback: '/api/recording-status',
-      recordingStatusCallbackEvent: ['completed'],
-      statusCallback: '/api/call-status',
-      statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-    });
-
-    res.json({ success: true, callSid: call.sid });
-  } catch (error) {
-    console.error('Error making call:', error);
-    const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-    res.status(500).json({ success: false, error: errorMessage });
-  }
-});
-
-// Call status webhook
-app.post('/api/call-status', (req, res) => {
-  console.log('Call Status:', req.body.CallStatus);
-  res.sendStatus(200);
-});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
