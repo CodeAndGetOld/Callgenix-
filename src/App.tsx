@@ -11,6 +11,7 @@ import {
 } from '@heroicons/react/24/outline';
 import TwilioSetup from './components/TwilioSetup';
 import CallManager from './components/CallManager';
+import CallList from './components/CallList';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -41,174 +42,117 @@ function App() {
           throw new Error('No token in response');
         }
       } catch (error) {
-        console.error('Error fetching Twilio token:', error);
-        if (error instanceof TypeError && error.message === 'Failed to fetch') {
-          console.error('Server might not be running. Please start the server with npm run server');
-        }
+        console.error('Error fetching token:', error);
       }
     };
 
     fetchToken();
   }, []);
 
-  const toggleStatus = () => {
-    setSystemStatus(systemStatus === 'active' ? 'paused' : 'active');
-  };
-
-  const handleCallStatusChange = (status: string) => {
-    setCallStatus(status);
-  };
-
-  const handleDeviceReady = (device: any) => {
-    setTwilioDevice(device);
-  };
-
-  const handleTestCall = async () => {
-    if (twilioDevice) {
-      try {
-        await twilioDevice.connect({
-          params: {
-            To: '+1234567890', // This will be handled by your TwiML
-          },
-        });
-      } catch (error) {
-        console.error('Error making test call:', error);
-      }
-    }
-  };
-
-  const handleHangup = () => {
-    if (twilioDevice) {
-      const activeConnection = twilioDevice.activeConnection();
-      if (activeConnection) {
-        activeConnection.disconnect();
-      }
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div>
+              <h2 className="text-2xl font-semibold mb-4">Call Controls</h2>
+              <CallManager
+                status={callStatus}
+                onAnswer={() => setCallStatus('connected')}
+                onHangup={() => setCallStatus('disconnected')}
+              />
+            </div>
+            <div>
+              <h2 className="text-2xl font-semibold mb-4">Recent Calls</h2>
+              <CallList />
+            </div>
+          </div>
+        );
+      case 'calls':
+        return (
+          <div>
+            <h2 className="text-2xl font-semibold mb-4">Call History</h2>
+            <CallList />
+          </div>
+        );
+      case 'settings':
+        return <TwilioSetup token={twilioToken} />;
+      default:
+        return null;
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <div className="fixed w-64 h-full bg-white border-r border-gray-200">
-        <div className="flex items-center gap-2 p-6 border-b border-gray-200">
-          <PhoneIcon className="w-6 h-6 text-blue-600" />
-          <h1 className="text-xl font-bold text-gray-800">CallAI Center</h1>
-        </div>
-        <nav className="p-4">
-          <ul className="space-y-2">
-            {[
-              { id: 'dashboard', icon: ChartBarIcon, label: 'Dashboard' },
-              { id: 'calls', icon: PhoneIcon, label: 'Active Calls' },
-              { id: 'scripts', icon: ChatBubbleLeftIcon, label: 'AI Scripts' },
-              { id: 'agents', icon: UsersIcon, label: 'Virtual Agents' },
-              { id: 'settings', icon: Cog6ToothIcon, label: 'Settings' },
-            ].map((item) => (
-              <li key={item.id}>
-                <button
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center w-full gap-3 px-4 py-2 rounded-lg ${
-                    activeTab === item.id
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5" />
-                  <span>{item.label}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
-
-      {/* Main Content */}
-      <div className="ml-64 p-8">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-2xl font-bold text-gray-800">System Overview</h2>
-          <button
-            onClick={toggleStatus}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-              systemStatus === 'active'
-                ? 'bg-green-50 text-green-600'
-                : 'bg-yellow-50 text-yellow-600'
-            }`}
-          >
-            {systemStatus === 'active' ? (
-              <>
-                <PlayIcon className="w-5 h-5" />
-                System Active
-              </>
-            ) : (
-              <>
-                <PauseIcon className="w-5 h-5" />
-                System Paused
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Twilio Setup and Call Manager */}
-        {twilioToken && (
-          <>
-            <TwilioSetup
-              token={twilioToken}
-              onCallStatusChange={handleCallStatusChange}
-              onDeviceReady={handleDeviceReady}
-            />
-            <CallManager status={callStatus} onTestCall={handleTestCall} onHangup={handleHangup} />
-          </>
-        )}
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {[
-            { label: 'Active Calls', value: '12', color: 'blue' },
-            { label: 'Avg. Call Duration', value: '4m 32s', color: 'green' },
-            { label: 'Queue Length', value: '3', color: 'yellow' },
-            { label: 'Resolution Rate', value: '94%', color: 'purple' },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              className="bg-white p-6 rounded-xl shadow-sm border border-gray-200"
-            >
-              <p className="text-gray-600 text-sm">{stat.label}</p>
-              <p className={`text-2xl font-bold mt-2 text-${stat.color}-600`}>{stat.value}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* Recent Alerts */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Recent Alerts</h3>
-          <div className="space-y-4">
-            {[
-              { message: 'High call volume detected', time: '2 minutes ago', type: 'warning' },
-              {
-                message: 'New AI script deployed successfully',
-                time: '1 hour ago',
-                type: 'success',
-              },
-              { message: 'System maintenance scheduled', time: '3 hours ago', type: 'info' },
-            ].map((alert, index) => (
-              <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
-                <BellIcon
-                  className={`w-5 h-5 text-${
-                    alert.type === 'warning'
-                      ? 'yellow'
-                      : alert.type === 'success'
-                      ? 'green'
-                      : 'blue'
-                  }-500`}
-                />
-                <div>
-                  <p className="text-gray-800">{alert.message}</p>
-                  <p className="text-sm text-gray-500">{alert.time}</p>
-                </div>
+      <nav className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16">
+            <div className="flex">
+              <div className="flex-shrink-0 flex items-center">
+                <h1 className="text-xl font-bold text-gray-900">AI Call Center</h1>
               </div>
-            ))}
+              <div className="hidden sm:ml-6 sm:flex sm:space-x-8">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`${
+                    activeTab === 'dashboard'
+                      ? 'border-blue-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
+                >
+                  Dashboard
+                </button>
+                <button
+                  onClick={() => setActiveTab('calls')}
+                  className={`${
+                    activeTab === 'calls'
+                      ? 'border-blue-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
+                >
+                  Calls
+                </button>
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`${
+                    activeTab === 'settings'
+                      ? 'border-blue-500 text-gray-900'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                  } inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium`}
+                >
+                  Settings
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center">
+              <button
+                onClick={() => setSystemStatus(systemStatus === 'active' ? 'paused' : 'active')}
+                className={`inline-flex items-center px-4 py-2 border rounded-md shadow-sm text-sm font-medium ${
+                  systemStatus === 'active'
+                    ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
+                    : 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100'
+                }`}
+              >
+                {systemStatus === 'active' ? (
+                  <>
+                    <PauseIcon className="h-5 w-5 mr-2" />
+                    Pause System
+                  </>
+                ) : (
+                  <>
+                    <PlayIcon className="h-5 w-5 mr-2" />
+                    Activate System
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </nav>
+
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {renderContent()}
+      </main>
     </div>
   );
 }
