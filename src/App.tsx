@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { PhoneIcon, ChatBubbleLeftIcon, Cog6ToothIcon, ChartBarIcon, UsersIcon, PlayIcon, PauseIcon, BellIcon } from '@heroicons/react/24/outline';
+import {
+  PhoneIcon,
+  ChatBubbleLeftIcon,
+  Cog6ToothIcon,
+  ChartBarIcon,
+  UsersIcon,
+  PlayIcon,
+  PauseIcon,
+  BellIcon,
+} from '@heroicons/react/24/outline';
 import TwilioSetup from './components/TwilioSetup';
 import CallManager from './components/CallManager';
 
@@ -20,11 +29,11 @@ function App() {
           },
           credentials: 'include',
         });
-        
+
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
         if (data.token) {
           setTwilioToken(data.token);
@@ -59,8 +68,8 @@ function App() {
       try {
         await twilioDevice.connect({
           params: {
-            To: '+1234567890' // This will be handled by your TwiML
-          }
+            To: '+1234567890', // This will be handled by your TwiML
+          },
         });
       } catch (error) {
         console.error('Error making test call:', error);
@@ -141,16 +150,12 @@ function App() {
         {/* Twilio Setup and Call Manager */}
         {twilioToken && (
           <>
-            <TwilioSetup 
-              token={twilioToken} 
+            <TwilioSetup
+              token={twilioToken}
               onCallStatusChange={handleCallStatusChange}
               onDeviceReady={handleDeviceReady}
             />
-            <CallManager 
-              status={callStatus}
-              onTestCall={handleTestCall}
-              onHangup={handleHangup}
-            />
+            <CallManager status={callStatus} onTestCall={handleTestCall} onHangup={handleHangup} />
           </>
         )}
 
@@ -167,9 +172,7 @@ function App() {
               className="bg-white p-6 rounded-xl shadow-sm border border-gray-200"
             >
               <p className="text-gray-600 text-sm">{stat.label}</p>
-              <p className={`text-2xl font-bold mt-2 text-${stat.color}-600`}>
-                {stat.value}
-              </p>
+              <p className={`text-2xl font-bold mt-2 text-${stat.color}-600`}>{stat.value}</p>
             </div>
           ))}
         </div>
@@ -180,17 +183,23 @@ function App() {
           <div className="space-y-4">
             {[
               { message: 'High call volume detected', time: '2 minutes ago', type: 'warning' },
-              { message: 'New AI script deployed successfully', time: '1 hour ago', type: 'success' },
+              {
+                message: 'New AI script deployed successfully',
+                time: '1 hour ago',
+                type: 'success',
+              },
               { message: 'System maintenance scheduled', time: '3 hours ago', type: 'info' },
             ].map((alert, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-3 p-3 rounded-lg bg-gray-50"
-              >
-                <BellIcon className={`w-5 h-5 text-${
-                  alert.type === 'warning' ? 'yellow' : 
-                  alert.type === 'success' ? 'green' : 'blue'
-                }-500`} />
+              <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+                <BellIcon
+                  className={`w-5 h-5 text-${
+                    alert.type === 'warning'
+                      ? 'yellow'
+                      : alert.type === 'success'
+                      ? 'green'
+                      : 'blue'
+                  }-500`}
+                />
                 <div>
                   <p className="text-gray-800">{alert.message}</p>
                   <p className="text-sm text-gray-500">{alert.time}</p>
